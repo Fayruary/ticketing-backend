@@ -6,7 +6,8 @@ const checkRole = require("../middleware/role");
 
 const {
   getDashboard,
-  getEventStatistics
+  getEventStatistics,
+  getPetugasDashboard
 } = require("../controllers/dashboardController");
 
 
@@ -26,4 +27,12 @@ router.get(
   getEventStatistics
 );
 
-module.exports = router;
+// Dashboard petugas
+router.get(
+  "/petugas",
+  auth,
+  checkRole("petugas", "admin"),
+  getPetugasDashboard
+);
+
+module.exports = router;

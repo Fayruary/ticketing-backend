@@ -81,6 +81,10 @@ app.use("/api/staff", staffRoutes);
 // Ticket
 app.use("/api/tickets", ticketRoutes);
 
+// Offline Sales
+const offlineSaleRoutes = require("./routes/offlineSaleRoutes");
+app.use("/api/offline-sales", offlineSaleRoutes);
+
 
 
 

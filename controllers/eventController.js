@@ -1,30 +1,69 @@
 const pool = require("../config/db");
 
-// GET semua event
+// GET semua event (mendukung query filter: city, search, genre, status)
 const getAllEvents = async (req, res) => {
   try {
-    const result = await pool.query(`
+    const { city, genre, search, status } = req.query;
+
+    let query = `
       SELECT
         e.*,
         o.name AS organizer_name,
-        o.company_name
+        o.company_name,
+        COALESCE(MIN(tc.price), 0)::numeric AS min_price
       FROM events e
       LEFT JOIN organizers o ON o.id = e.organizer_id
+      LEFT JOIN ticket_categories tc ON tc.event_id = e.id
+      WHERE 1=1
+    `;
+
+    const params = [];
+    let paramIndex = 1;
+
+    if (city && city !== "Semua Kota") {
+      query += ` AND LOWER(e.city) LIKE LOWER($${paramIndex})`;
+      params.push(`%${city}%`);
+      paramIndex++;
+    }
+
+    if (search && search.trim() !== "") {
+      query += ` AND (LOWER(e.name) LIKE LOWER($${paramIndex}) OR LOWER(e.venue) LIKE LOWER($${paramIndex}) OR LOWER(e.description) LIKE LOWER($${paramIndex}))`;
+      params.push(`%${search.trim()}%`);
+      paramIndex++;
+    }
+
+    if (genre && genre !== "Semua") {
+      query += ` AND LOWER(e.description) LIKE LOWER($${paramIndex})`;
+      params.push(`%${genre}%`);
+      paramIndex++;
+    }
+
+    if (status) {
+      query += ` AND e.status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+
+    query += `
+      GROUP BY e.id, o.name, o.company_name
       ORDER BY e.created_at DESC
-    `);
+    `;
+
+    const result = await pool.query(query, params);
 
     res.json({
       success: true,
       data: result.rows
     });
   } catch (error) {
-    console.error(error);
+    console.error("Get all events error:", error);
     res.status(500).json({
       success: false,
       message: "Gagal mengambil event"
     });
   }
 };
+
 
 // GET event berdasarkan ID
 const getEventById = async (req, res) => {

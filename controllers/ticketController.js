@@ -250,11 +250,46 @@ const getTicketByCode = async (req, res) => {
   }
 };
 
+// GET Kategori tiket berdasarkan ID
+const getTicketCategoryById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM ticket_categories
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Kategori tiket tidak ditemukan"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Gagal mengambil kategori tiket"
+    });
+  }
+};
+
 module.exports = {
   getCategoriesByEvent,
+  getTicketCategoryById,
   createTicketCategory,
   updateTicketCategory,
   deleteTicketCategory,
   getMyTickets,
   getTicketByCode
-};
+};

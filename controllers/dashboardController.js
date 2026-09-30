@@ -124,7 +124,124 @@ const getEventStatistics = async (req, res) => {
   }
 };
 
+// Dashboard statistik petugas lapangan
+const getPetugasDashboard = async (req, res) => {
+  try {
+    const staffId = req.user.id;
+
+    // Ambil penugasan event staff
+    const staffEvents = await pool.query(
+      "SELECT event_id FROM event_staff WHERE user_id = $1",
+      [staffId]
+    );
+
+    const eventIds = staffEvents.rows.map((r) => r.event_id);
+
+    let onlineQuery, offlineQuery, checkinQuery, capacityQuery;
+
+    if (eventIds.length > 0) {
+      onlineQuery = pool.query(
+        `
+        SELECT COUNT(t.id)::int AS total
+        FROM tickets t
+        JOIN order_details od ON od.id = t.order_detail_id
+        JOIN ticket_categories tc ON tc.id = od.ticket_category_id
+        WHERE tc.event_id = ANY($1::uuid[])
+        `,
+        [eventIds]
+      );
+
+      offlineQuery = pool.query(
+        `
+        SELECT COALESCE(SUM(quantity), 0)::int AS total
+        FROM offline_sales
+        WHERE event_id = ANY($1::uuid[])
+        `,
+        [eventIds]
+      );
+
+      checkinQuery = pool.query(
+        `
+        SELECT COUNT(c.id)::int AS total
+        FROM checkins c
+        JOIN tickets t ON t.id = c.ticket_id
+        JOIN order_details od ON od.id = t.order_detail_id
+        JOIN ticket_categories tc ON tc.id = od.ticket_category_id
+        WHERE tc.event_id = ANY($1::uuid[])
+        `,
+        [eventIds]
+      );
+
+      capacityQuery = pool.query(
+        `
+        SELECT COALESCE(SUM(capacity), 0)::int AS total
+        FROM events
+        WHERE id = ANY($1::uuid[])
+        `,
+        [eventIds]
+      );
+    } else {
+      onlineQuery = pool.query(
+        `
+        SELECT COUNT(t.id)::int AS total
+        FROM tickets t
+        WHERE t.order_detail_id IS NOT NULL
+        `
+      );
+
+      offlineQuery = pool.query(
+        `
+        SELECT COALESCE(SUM(quantity), 0)::int AS total
+        FROM offline_sales
+        `
+      );
+
+      checkinQuery = pool.query(
+        "SELECT COUNT(*)::int AS total FROM checkins"
+      );
+
+      capacityQuery = pool.query(
+        "SELECT COALESCE(SUM(capacity), 1000)::int AS total FROM events"
+      );
+    }
+
+    const [onlineRes, offlineRes, checkinRes, capRes] = await Promise.all([
+      onlineQuery,
+      offlineQuery,
+      checkinQuery,
+      capacityQuery
+    ]);
+
+    const online = onlineRes.rows[0].total;
+    const offline = offlineRes.rows[0].total;
+    const total = online + offline;
+    const checkedIn = checkinRes.rows[0].total;
+    const notCheckedIn = Math.max(0, total - checkedIn);
+    const capacity = capRes.rows[0].total || 1000;
+    const remaining = Math.max(0, capacity - total);
+
+    res.json({
+      success: true,
+      data: {
+        total_tickets: total,
+        online_tickets: online,
+        offline_tickets: offline,
+        checked_in: checkedIn,
+        not_checked_in: notCheckedIn,
+        remaining_tickets: remaining
+      }
+    });
+  } catch (error) {
+    console.error("Petugas dashboard error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Gagal mengambil dashboard petugas"
+    });
+  }
+};
+
 module.exports = {
   getDashboard,
-  getEventStatistics
-};
+  getEventStatistics,
+  getPetugasDashboard
+};

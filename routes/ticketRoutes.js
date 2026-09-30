@@ -6,6 +6,7 @@ const checkRole = require("../middleware/role");
 
 const {
   getCategoriesByEvent,
+  getTicketCategoryById,
   createTicketCategory,
   updateTicketCategory,
   deleteTicketCategory,
@@ -22,6 +23,12 @@ const {
 router.get(
   "/category/event/:eventId",
   getCategoriesByEvent
+);
+
+// Detail kategori tiket berdasarkan ID
+router.get(
+  "/category/:id",
+  getTicketCategoryById
 );
 
 // Buat kategori tiket
@@ -53,11 +60,10 @@ router.delete(
 // TICKETS
 // ===============================
 
-// Tiket milik user
+// Tiket milik user (bisa diakses user, admin, atau petugas yang login)
 router.get(
   "/my",
   auth,
-  checkRole("user"),
   getMyTickets
 );
 
