@@ -1,5 +1,17 @@
 const pool = require("../config/db");
 
+// ---------- Helpers ----------
+
+// "" / undefined / null -> null, "1.000" -> 1000, angka tidak valid -> NaN
+const toIntOrNull = (v) => {
+  if (v === "" || v === undefined || v === null) return null;
+  const n = Number(String(v).replace(/\./g, ""));
+  return Number.isInteger(n) ? n : NaN;
+};
+
+// "" / undefined -> null (biar COALESCE di UPDATE tidak menimpa data lama dengan string kosong)
+const emptyToNull = (v) => (v === "" || v === undefined ? null : v);
+
 // GET semua event (mendukung query filter: city, search, genre, status)
 const getAllEvents = async (req, res) => {
   try {
@@ -128,6 +140,23 @@ const createEvent = async (req, res) => {
       });
     }
 
+    const capacityInt = toIntOrNull(capacity);
+    const organizerInt = toIntOrNull(organizer_id);
+
+    if (Number.isNaN(capacityInt) || (capacityInt !== null && capacityInt < 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Kapasitas harus berupa angka bulat"
+      });
+    }
+
+    if (Number.isNaN(organizerInt)) {
+      return res.status(400).json({
+        success: false,
+        message: "Organizer tidak valid"
+      });
+    }
+
     const result = await pool.query(
       `
       INSERT INTO events
@@ -148,13 +177,13 @@ const createEvent = async (req, res) => {
       RETURNING *
       `,
       [
-        organizer_id || null,
+        organizerInt,
         name,
         description || null,
         poster || null,
         city || null,
         venue || null,
-        capacity || null,
+        capacityInt,
         event_date || null,
         event_time || null,
         status || "draft"
@@ -193,6 +222,23 @@ const updateEvent = async (req, res) => {
       status
     } = req.body;
 
+    const capacityInt = toIntOrNull(capacity);
+    const organizerInt = toIntOrNull(organizer_id);
+
+    if (Number.isNaN(capacityInt) || (capacityInt !== null && capacityInt < 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Kapasitas harus berupa angka bulat"
+      });
+    }
+
+    if (Number.isNaN(organizerInt)) {
+      return res.status(400).json({
+        success: false,
+        message: "Organizer tidak valid"
+      });
+    }
+
     const result = await pool.query(
       `
       UPDATE events
@@ -212,16 +258,16 @@ const updateEvent = async (req, res) => {
       RETURNING *
       `,
       [
-        organizer_id,
-        name,
-        description,
-        poster,
-        city,
-        venue,
-        capacity,
-        event_date,
-        event_time,
-        status,
+        organizerInt,
+        emptyToNull(name),
+        emptyToNull(description),
+        emptyToNull(poster),
+        emptyToNull(city),
+        emptyToNull(venue),
+        capacityInt,
+        emptyToNull(event_date),
+        emptyToNull(event_time),
+        emptyToNull(status),
         id
       ]
     );
