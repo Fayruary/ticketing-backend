@@ -1,13 +1,13 @@
 const { Pool } = require("pg");
+const path = require("path");
 
-require("dotenv").config();
+require("dotenv").config({ path: path.join(__dirname, "../.env") });
+
+const isSSL = process.env.DATABASE_SSL === "true";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: isSSL ? { rejectUnauthorized: false } : false,
 });
 
 // Test koneksi
