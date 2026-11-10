@@ -159,6 +159,8 @@ const getMyTickets = async (req, res) => {
         t.ticket_code,
         t.qr_code,
         t.status,
+        COALESCE(t.owner_name, o.buyer_name) AS owner_name,
+        COALESCE(t.owner_email, o.buyer_email) AS owner_email,
         o.invoice_code,
         e.id AS event_id,
         e.name AS event_name,
@@ -212,8 +214,8 @@ const getTicketByCode = async (req, res) => {
         e.event_time,
         e.venue,
         tc.name AS ticket_category,
-        u.name AS buyer_name,
-        u.email AS buyer_email
+        COALESCE(t.owner_name, o.buyer_name, u.name) AS buyer_name,
+        COALESCE(t.owner_email, o.buyer_email, u.email) AS buyer_email
       FROM tickets t
       JOIN order_details od
         ON od.id = t.order_detail_id
@@ -223,7 +225,7 @@ const getTicketByCode = async (req, res) => {
         ON tc.id = od.ticket_category_id
       JOIN events e
         ON e.id = tc.event_id
-      JOIN users u
+      LEFT JOIN users u
         ON u.id = o.user_id
       WHERE t.ticket_code = $1
       `,

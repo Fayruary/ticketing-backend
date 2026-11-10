@@ -7,15 +7,21 @@ const checkRole = require("../middleware/role");
 const {
   createPayment,
   getPaymentByOrder,
-  updatePaymentStatus
+  updatePaymentStatus,
+  handleMidtransNotification
 } = require("../controllers/paymentController");
 
+// Midtrans Webhook Notification (No JWT auth, Midtrans calls this directly)
+router.post(
+  "/notification",
+  handleMidtransNotification
+);
 
 // Buat payment
 router.post(
   "/",
   auth,
-  checkRole("user"),
+  checkRole("user", "admin"),
   createPayment
 );
 
@@ -26,7 +32,7 @@ router.get(
   getPaymentByOrder
 );
 
-// Update status payment
+// Update status payment (manual admin)
 router.patch(
   "/:id/status",
   auth,
