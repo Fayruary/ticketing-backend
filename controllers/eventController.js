@@ -12,6 +12,53 @@ const toIntOrNull = (v) => {
 // "" / undefined -> null (biar COALESCE di UPDATE tidak menimpa data lama dengan string kosong)
 const emptyToNull = (v) => (v === "" || v === undefined ? null : v);
 
+// Ekstrak direct image URL jika user memasukkan link artikel / halaman web HTML (misal link berita atau blog)
+const resolveImageUrl = async (url) => {
+  if (!url || typeof url !== "string") return url;
+  const trimmed = url.trim();
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) return trimmed;
+
+  // Jika sudah jelas berakhiran ekstensi gambar langsung, gunakan langsung
+  if (/\.(jpeg|jpg|png|webp|gif|svg|avif)(\?.*)?$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const resp = await fetch(trimmed, {
+      signal: controller.signal,
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
+    });
+    clearTimeout(timeout);
+
+    const contentType = resp.headers.get("content-type") || "";
+    if (contentType.startsWith("image/")) {
+      return trimmed;
+    }
+
+    if (contentType.includes("text/html")) {
+      const html = await resp.text();
+      // Cari og:image dari OpenGraph metadata
+      const ogMatch =
+        html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
+        html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i) ||
+        html.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i);
+      if (ogMatch && ogMatch[1]) {
+        return ogMatch[1];
+      }
+      // Fallback: cari gambar pertama dalam artikel
+      const imgMatch = html.match(/<img[^>]+src=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp))["']/i);
+      if (imgMatch && imgMatch[1]) {
+        return imgMatch[1];
+      }
+    }
+  } catch {
+    // Abaikan jika timeout/gagal, fallback ke url awal
+  }
+  return trimmed;
+};
+
 // GET semua event (mendukung query filter: city, search, genre, status)
 const getAllEvents = async (req, res) => {
   try {
@@ -157,6 +204,8 @@ const createEvent = async (req, res) => {
       });
     }
 
+    const resolvedPoster = poster ? await resolveImageUrl(poster) : null;
+
     const result = await pool.query(
       `
       INSERT INTO events
@@ -180,7 +229,7 @@ const createEvent = async (req, res) => {
         organizerInt,
         name,
         description || null,
-        poster || null,
+        resolvedPoster,
         city || null,
         venue || null,
         capacityInt,
@@ -239,6 +288,8 @@ const updateEvent = async (req, res) => {
       });
     }
 
+    const resolvedPoster = poster ? await resolveImageUrl(poster) : null;
+
     const result = await pool.query(
       `
       UPDATE events
@@ -261,7 +312,7 @@ const updateEvent = async (req, res) => {
         organizerInt,
         emptyToNull(name),
         emptyToNull(description),
-        emptyToNull(poster),
+        emptyToNull(resolvedPoster),
         emptyToNull(city),
         emptyToNull(venue),
         capacityInt,
