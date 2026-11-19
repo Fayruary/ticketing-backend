@@ -7,10 +7,10 @@ const checkRole = require("../middleware/role");
 const {
   createOfflineSale,
   getOfflineSales,
-  getEventOfflineSales
+  getEventOfflineSales,
 } = require("../controllers/offlineSaleController");
 
-// Create offline sale (petugas or admin)
+// Create offline sale (petugas atau admin) - Validasi permission 'offline_sales' dilakukan di controller
 router.post(
   "/",
   auth,
@@ -18,7 +18,7 @@ router.post(
   createOfflineSale
 );
 
-// Get all offline sales
+// Get all offline sales (admin melihat semua; petugas hanya event miliknya)
 router.get(
   "/",
   auth,
@@ -26,7 +26,7 @@ router.get(
   getOfflineSales
 );
 
-// Get offline sales for specific event
+// Get offline sales for specific event - Validasi permission 'view_reports' / 'offline_sales'
 router.get(
   "/event/:eventId",
   auth,
