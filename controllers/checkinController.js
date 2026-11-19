@@ -1,6 +1,22 @@
 const pool = require("../config/db");
 const { verifyStaffPermission } = require("../middleware/permission");
 
+// Helper untuk mengekstrak kode tiket bersih jika scanner mengirimkan raw code atau JSON string QR
+const extractCleanTicketCode = (input) => {
+  if (!input) return "";
+  let str = String(input).trim();
+  if (str.startsWith("{") && str.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(str);
+      if (parsed.code) return String(parsed.code).trim().toUpperCase();
+      if (parsed.ticket_code) return String(parsed.ticket_code).trim().toUpperCase();
+    } catch {
+      // bukan JSON murni
+    }
+  }
+  return str.toUpperCase();
+};
+
 // ==========================================
 // 1. CHECK-IN TIKET (SCAN BARCODE / QR CODE)
 // ==========================================
@@ -11,7 +27,9 @@ const checkinTicket = async (req, res) => {
     const staffId = req.user.id;
     const { ticket_code } = req.body;
 
-    if (!ticket_code || !ticket_code.trim()) {
+    const cleanCode = extractCleanTicketCode(ticket_code);
+
+    if (!cleanCode) {
       return res.status(400).json({
         success: false,
         message: "Kode tiket wajib diisi untuk melakukan check-in",
@@ -39,17 +57,17 @@ const checkinTicket = async (req, res) => {
       LEFT JOIN ticket_categories tc ON tc.id = od.ticket_category_id
       LEFT JOIN orders o ON o.id = t.order_id OR o.id = od.order_id
       LEFT JOIN events e ON e.id = tc.event_id OR e.id = o.event_id
-      WHERE t.ticket_code = $1
+      WHERE UPPER(TRIM(t.ticket_code)) = UPPER(TRIM($1))
       FOR UPDATE OF t
       `,
-      [ticket_code.trim()]
+      [cleanCode]
     );
 
     if (ticketResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({
         success: false,
-        message: "Tiket tidak ditemukan dalam sistem",
+        message: `Tiket dengan kode "${cleanCode}" tidak ditemukan dalam sistem`,
       });
     }
 
@@ -57,14 +75,40 @@ const checkinTicket = async (req, res) => {
 
     // 2. Pastikan tiket belum pernah digunakan (mencegah double check-in)
     if (ticket.status === "used") {
+      // Ambil waktu check-in sebelumnya dan nama petugas yang mencatat
+      const prevCheckin = await client.query(
+        `
+        SELECT c.checkin_time, u.name AS staff_name
+        FROM checkins c
+        LEFT JOIN users u ON u.id = c.staff_id
+        WHERE c.ticket_id = $1
+        ORDER BY c.checkin_time DESC
+        LIMIT 1
+        `,
+        [ticket.id]
+      );
+
       await client.query("ROLLBACK");
+
+      const checkinInfo = prevCheckin.rows[0];
+      const checkinTimeStr = checkinInfo?.checkin_time
+        ? new Date(checkinInfo.checkin_time).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })
+        : "Sebelumnya";
+
       return res.status(400).json({
         success: false,
-        message: "Tiket sudah digunakan sebelumnya untuk masuk ke venue",
+        message: `Tiket SUDAH DIGUNAKAN sebelumnya pada ${checkinTimeStr}${
+          checkinInfo?.staff_name ? ` oleh petugas ${checkinInfo.staff_name}` : ""
+        }. Pengunjung ditolak!`,
         data: {
           ticket_code: ticket.ticket_code,
           event_name: ticket.event_name,
+          owner_name: ticket.owner_name,
+          ticket_category: ticket.ticket_category,
           status: "used",
+          is_valid: false,
+          checkin_time: checkinInfo?.checkin_time,
+          staff_name: checkinInfo?.staff_name,
         },
       });
     }

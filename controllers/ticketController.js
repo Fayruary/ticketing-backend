@@ -200,54 +200,108 @@ const getMyTickets = async (req, res) => {
   }
 };
 
-// Cari tiket berdasarkan kode
+// Helper untuk mengekstrak kode tiket bersih (jika scanner mengirimkan raw code atau JSON string QR)
+const extractCleanTicketCode = (input) => {
+  if (!input) return "";
+  let str = String(input).trim();
+  if (str.startsWith("{") && str.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(str);
+      if (parsed.code) return String(parsed.code).trim().toUpperCase();
+      if (parsed.ticket_code) return String(parsed.ticket_code).trim().toUpperCase();
+    } catch {
+      // bukan JSON murni, lanjutkan sebagai string biasa
+    }
+  }
+  return str.toUpperCase();
+};
+
+// Cari & Validasi tiket berdasarkan kode tiket
 const getTicketByCode = async (req, res) => {
   try {
     const { code } = req.params;
+    const cleanCode = extractCleanTicketCode(code);
+
+    if (!cleanCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Kode tiket tidak boleh kosong",
+      });
+    }
 
     const result = await pool.query(
       `
       SELECT
-        t.*,
-        e.name AS event_name,
+        t.id,
+        t.ticket_code,
+        t.status,
+        COALESCE(t.owner_name, o.buyer_name, u.name, 'Pengunjung') AS owner_name,
+        COALESCE(t.owner_email, o.buyer_email, u.email, '') AS owner_email,
+        COALESCE(t.owner_phone, o.buyer_phone, u.phone, '') AS owner_phone,
+        t.created_at,
+        t.qr_code,
+        COALESCE(tc.event_id, o.event_id, e.id) AS event_id,
+        COALESCE(e.name, 'Konser Musik') AS event_name,
+        e.poster AS event_poster,
         e.event_date,
         e.event_time,
         e.venue,
-        tc.name AS ticket_category,
-        COALESCE(t.owner_name, o.buyer_name, u.name) AS buyer_name,
-        COALESCE(t.owner_email, o.buyer_email, u.email) AS buyer_email
+        e.city,
+        COALESCE(tc.name, 'General Pass') AS ticket_category,
+        COALESCE(tc.price, od.price, 0) AS ticket_price,
+        o.invoice_code,
+        o.payment_status,
+        c.checkin_time,
+        staff.name AS checked_in_by_staff
       FROM tickets t
-      JOIN order_details od
-        ON od.id = t.order_detail_id
-      JOIN orders o
-        ON o.id = od.order_id
-      JOIN ticket_categories tc
-        ON tc.id = od.ticket_category_id
-      JOIN events e
-        ON e.id = tc.event_id
-      LEFT JOIN users u
-        ON u.id = o.user_id
-      WHERE t.ticket_code = $1
+      LEFT JOIN order_details od ON od.id = t.order_detail_id
+      LEFT JOIN ticket_categories tc ON tc.id = od.ticket_category_id
+      LEFT JOIN orders o ON o.id = t.order_id OR o.id = od.order_id
+      LEFT JOIN events e ON e.id = tc.event_id OR e.id = o.event_id
+      LEFT JOIN users u ON u.id = o.user_id
+      LEFT JOIN checkins c ON c.ticket_id = t.id
+      LEFT JOIN users staff ON staff.id = c.staff_id
+      WHERE UPPER(TRIM(t.ticket_code)) = UPPER(TRIM($1))
+      ORDER BY c.checkin_time DESC NULLS LAST
+      LIMIT 1
       `,
-      [code]
+      [cleanCode]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Tiket tidak ditemukan"
+        message: `Tiket dengan kode "${cleanCode}" tidak ditemukan dalam sistem.`,
       });
+    }
+
+    const row = result.rows[0];
+    const isValid = row.status === "active";
+
+    let statusLabel = "Tidak Valid";
+    if (row.status === "active") {
+      statusLabel = "Valid (Belum Digunakan)";
+    } else if (row.status === "used") {
+      statusLabel = "Sudah Digunakan (Telah Masuk)";
+    } else if (row.status === "expired") {
+      statusLabel = "Kadaluarsa";
+    } else if (row.status === "cancelled") {
+      statusLabel = "Dibatalkan";
     }
 
     res.json({
       success: true,
-      data: result.rows[0]
+      data: {
+        ...row,
+        is_valid: isValid,
+        status_label: statusLabel,
+      },
     });
   } catch (error) {
-    console.error(error);
+    console.error("getTicketByCode Error:", error);
     res.status(500).json({
       success: false,
-      message: "Gagal mencari tiket"
+      message: "Gagal memvalidasi kode tiket",
     });
   }
 };
